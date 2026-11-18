@@ -38,9 +38,9 @@ jobs:
           # 7.1-rc1 的 tarball 已从 kernel.org testing/ 移除，改用 git 标签浅克隆
           git clone --depth 1 --branch v${KVER} \
             https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git "$KDIR"
+          test -d "$KDIR" || { echo "ERROR: $KDIR not found"; ls; exit 1; }
           cd "$KDIR"
           echo "checked out: $(make -s kernelversion)"
-          test -d "$KDIR" || { echo "ERROR: $KDIR not found"; ls; exit 1; }
           echo "source ready: $KDIR"
 
       - name: Apply extracted defconfig
