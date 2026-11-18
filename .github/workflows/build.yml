@@ -1,0 +1,113 @@
+name: Build polaris kernel (DSI PLL fix)
+
+on:
+  workflow_dispatch:
+
+env:
+  KVER: "7.1-rc1"
+  KDIR: "linux-7.1-rc1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            xz-utils cpio ca-certificates curl
+
+      - name: Show toolchain
+        run: |
+          aarch64-linux-gnu-gcc --version | head -1
+          echo "cpus: $(nproc)"
+          df -h /
+
+      - name: Download kernel source
+        run: |
+          set -e
+          ok=0
+          for url in \
+            "https://cdn.kernel.org/pub/linux/kernel/v7.x/testing/linux-${KVER}.tar.xz" \
+            "https://mirrors.edge.kernel.org/pub/linux/kernel/v7.x/testing/linux-${KVER}.tar.xz" \
+            "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KVER}.tar.xz"
+          do
+            echo "::group::try $url"
+            if curl -fL --retry 2 --connect-timeout 20 -o linux.tar.xz "$url"; then
+              echo "downloaded from $url"
+              ok=1
+              echo "::endgroup::"
+              break
+            fi
+            echo "::endgroup::"
+          done
+          if [ "$ok" != "1" ]; then
+            echo "ERROR: all mirrors failed"
+            exit 1
+          fi
+          ls -lh linux.tar.xz
+          tar -xf linux.tar.xz
+          test -d "$KDIR" || { echo "ERROR: $KDIR not found"; ls; exit 1; }
+          echo "source ready: $KDIR"
+
+      - name: Apply extracted defconfig
+        run: |
+          cp config.txt "$KDIR/.config"
+          echo "--- key options from original kernel ---"
+          grep -E "^CONFIG_LOCALVERSION=|^CONFIG_DRM_MSM=|^CONFIG_DRM_MSM_DSI=" "$KDIR/.config"
+
+      - name: Patch DSI 10nm PHY (power up digital top with PLL bias)
+        run: |
+          cd "$KDIR/drivers/gpu/drm/msm/dsi/phy"
+          python3 "$GITHUB_WORKSPACE/patch_dsi.py"
+          echo "--- patched line ---"
+          grep -n "BIT(6) | BIT(5)" dsi_phy_10nm.c
+
+      - name: Configure (olddefconfig, strip debug info)
+        run: |
+          cd "$KDIR"
+          # 关掉调试信息，大幅缩短编译时间；不影响任何功能
+          ./scripts/config --file .config \
+            -d DEBUG_INFO -d DEBUG_INFO_DWARF5 \
+            -d DEBUG_INFO_BTF -d DEBUG_INFO_BTF_MODULES \
+            -d DEBUG_INFO_REDUCED -d GDB_SCRIPTS
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          echo "--- resulting options ---"
+          grep -E "^CONFIG_(CC_IS|LD_IS|LOCALVERSION|DRM_MSM_DSI|DEBUG_INFO)=" .config || true
+
+      - name: Build Image
+        run: |
+          set -o pipefail
+          cd "$KDIR"
+          time make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" Image 2>&1 | tail -60
+
+      - name: Verify Image
+        run: |
+          IMG="$KDIR/arch/arm64/boot/Image"
+          ls -lh "$IMG"
+          python3 -c "
+          import sys
+          p='$IMG'
+          d=open(p,'rb').read(64)
+          magic=int.from_bytes(d[56:60],'little')
+          size=int.from_bytes(d[16:24],'little')
+          print('arm64 magic:', hex(magic), 'OK' if magic==0x644d5241 else 'BAD')
+          print('image_size :', size, '(%.1f MB)'%(size/1048576))
+          assert magic==0x644d5241, 'not an arm64 Image'
+          assert size > 10*1048576, 'image too small'
+          "
+
+      - name: Upload Image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: polaris-Image-${{ env.KVER }}
+          path: ${{ env.KDIR }}/arch/arm64/boot/Image
+          if-no-files-found: error
+          retention-days: 7
