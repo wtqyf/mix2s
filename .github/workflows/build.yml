@@ -2,6 +2,8 @@ name: Build polaris kernel (DSI PLL fix)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 env:
   KVER: "7.1-rc1"
