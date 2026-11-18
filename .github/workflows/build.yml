@@ -35,27 +35,11 @@ jobs:
       - name: Download kernel source
         run: |
           set -e
-          ok=0
-          for url in \
-            "https://cdn.kernel.org/pub/linux/kernel/v7.x/testing/linux-${KVER}.tar.xz" \
-            "https://mirrors.edge.kernel.org/pub/linux/kernel/v7.x/testing/linux-${KVER}.tar.xz" \
-            "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${KVER}.tar.xz"
-          do
-            echo "::group::try $url"
-            if curl -fL --retry 2 --connect-timeout 20 -o linux.tar.xz "$url"; then
-              echo "downloaded from $url"
-              ok=1
-              echo "::endgroup::"
-              break
-            fi
-            echo "::endgroup::"
-          done
-          if [ "$ok" != "1" ]; then
-            echo "ERROR: all mirrors failed"
-            exit 1
-          fi
-          ls -lh linux.tar.xz
-          tar -xf linux.tar.xz
+          # 7.1-rc1 的 tarball 已从 kernel.org testing/ 移除，改用 git 标签浅克隆
+          git clone --depth 1 --branch v${KVER} \
+            https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git "$KDIR"
+          cd "$KDIR"
+          echo "checked out: $(make -s kernelversion)"
           test -d "$KDIR" || { echo "ERROR: $KDIR not found"; ls; exit 1; }
           echo "source ready: $KDIR"
 
