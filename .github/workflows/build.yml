@@ -72,9 +72,22 @@ jobs:
             -d DEBUG_INFO -d DEBUG_INFO_DWARF5 \
             -d DEBUG_INFO_BTF -d DEBUG_INFO_BTF_MODULES \
             -d DEBUG_INFO_REDUCED -d GDB_SCRIPTS
+          # 关键：安卓 defconfig 遗留的“编译期强制 lockdown”会让未签名模块全部被拒
+          # （modprobe: Operation not permitted / Lockdown: unsigned module loading is restricted），
+          # 必须关掉，否则 WiFi/触摸等模块永远加载不了
+          ./scripts/config --file .config \
+            -d LOCK_DOWN_KERNEL_FORCE_INTEGRITY \
+            -d LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY \
+            -e LOCK_DOWN_KERNEL_FORCE_NONE \
+            -d MODULE_SIG_FORCE
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           echo "--- resulting options ---"
           grep -E "^CONFIG_(CC_IS|LD_IS|LOCALVERSION|DRM_MSM_DSI|DEBUG_INFO)=" .config || true
+          echo "--- lockdown / module sig ---"
+          grep -E "LOCK_DOWN|MODULE_SIG_FORCE" .config
+          # 硬断言：必须出现 FORCE_NONE=y 且没有 FORCE_INTEGRITY
+          grep -q "^CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y" .config || { echo "FATAL: lockdown still forced"; exit 1; }
+          ! grep -q "^CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY=y" .config || { echo "FATAL: integrity forced"; exit 1; }
 
       - name: Build Image
         run: |
