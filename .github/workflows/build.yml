@@ -35,9 +35,10 @@ jobs:
       - name: Download kernel source
         run: |
           set -e
-          # 7.1-rc1 的 tarball 已从 kernel.org testing/ 移除，改用 git 标签浅克隆
-          git clone --depth 1 --branch v${KVER} \
-            https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git "$KDIR"
+          # pmOS 实际源是 sdm845-mainline fork（含 sdm845 显示/设备补丁），
+          # 原版 torvalds 源缺这些补丁导致显示链路静默不聚合
+          git clone --depth 1 --branch sdm845-7.1-rc1-r0 \
+            https://gitlab.com/sdm845-mainline/linux.git "$KDIR"
           test -d "$KDIR" || { echo "ERROR: $KDIR not found"; ls; exit 1; }
           cd "$KDIR"
           echo "checked out: $(make -s kernelversion)"
