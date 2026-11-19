@@ -1,0 +1,104 @@
+name: Build pmOS rootfs (polaris console)
+
+on:
+  push:
+    paths:
+      - "rootfs-build/**"
+      - ".github/workflows/build-rootfs.yml"
+  workflow_dispatch:
+
+jobs:
+  rootfs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Install qemu-user-static (run aarch64 binaries via binfmt)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user-static binfmt-support
+          sudo systemctl restart systemd-binfmt 2>/dev/null || true
+          ls /proc/sys/fs/binfmt_misc/ | head
+          cat /proc/sys/fs/binfmt_misc/qemu-aarch64 2>/dev/null | head -3 || echo "binfmt entry missing"
+
+      - name: Fetch Alpine minirootfs (aarch64)
+        run: |
+          set -e
+          BASE=https://dl-cdn.alpinelinux.org/alpine
+          for V in v3.22 v3.23 v3.21; do
+            F=$(curl -sSL "$BASE/$V/releases/aarch64/" | grep -oE 'alpine-minirootfs-[0-9.]+-aarch64\.tar\.gz' | sort -V | tail -1)
+            if [ -n "$F" ]; then
+              echo "ALPINE_VER=$V" >> $GITHUB_ENV
+              echo "ALPINE_FILE=$F" >> $GITHUB_ENV
+              echo "picked $V / $F"
+              curl -sSL -o /tmp/mini.tgz "$BASE/$V/releases/aarch64/$F"
+              break
+            fi
+          done
+          mkdir -p /tmp/rootfs
+          sudo tar xzf /tmp/mini.tgz -C /tmp/rootfs
+          sudo cp /etc/resolv.conf /tmp/rootfs/etc/resolv.conf
+
+      - name: Configure apk repositories
+        run: |
+          set -e
+          sudo tee /tmp/rootfs/etc/apk/repositories >/dev/null <<EOF
+          https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VER}/main
+          https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VER}/community
+          https://mirror.postmarketos.org/postmarketos/v25.12/aarch64
+          EOF
+          sudo mkdir -p /tmp/rootfs/etc/apk/keys
+          sudo chroot /tmp/rootfs /sbin/apk update --allow-untrusted 2>&1 | tail -5
+
+      - name: Install pmOS packages
+        run: |
+          set -e
+          sudo chroot /tmp/rootfs /sbin/apk add --allow-untrusted --no-progress \
+            alpine-base openrc \
+            postmarketos-base device-xiaomi-polaris \
+            openssh openssh-server-pam e2fsprogs util-linux nano htop \
+            wget curl ca-certificates tzdata doas \
+            2>&1 | tail -40
+
+      - name: Configure system
+        run: |
+          set -e
+          R=/tmp/rootfs
+          echo "polaris" | sudo tee $R/etc/hostname
+          sudo tee $R/etc/hosts >/dev/null <<'EOF'
+          127.0.0.1 localhost polaris
+          ::1 localhost
+          EOF
+          # passwords: root/pmos, user/pmos
+          printf 'root:pmos\n' | sudo chroot $R chpasswd
+          sudo chroot $R adduser -D -s /bin/ash user || true
+          printf 'user:pmos\n' | sudo chroot $R chpasswd || true
+          for g in wheel video audio input plugdev netdev; do
+            sudo chroot $R addgroup user $g 2>/dev/null || sudo chroot $R adduser user $g 2>/dev/null || true
+          done
+          # serial console getty on USB gadget (ttyGS0) + screen tty0
+          sudo tee -a $R/etc/inittab >/dev/null <<'EOF'
+          ttyGS0::respawn:/sbin/getty -L 115200 ttyGS0 vt100
+          EOF
+          sudo chroot $R rc-update add sshd default 2>/dev/null || true
+          sudo chroot $R rc-update add networking default 2>/dev/null || true
+          # fstab: root by label (we format with that label on device)
+          sudo tee $R/etc/fstab >/dev/null <<'EOF'
+          LABEL=pmos-root / ext4 defaults,noatime 0 1
+          EOF
+          # allow empty root login on serial for recovery
+          sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' $R/etc/ssh/sshd_config 2>/dev/null || true
+          sudo chroot $R rc-update -u 2>/dev/null || true
+
+      - name: Pack rootfs
+        run: |
+          set -e
+          sudo tar czf /tmp/rootfs.tar.gz -C /tmp/rootfs .
+          ls -lh /tmp/rootfs.tar.gz
+          sudo chown $USER /tmp/rootfs.tar.gz
+
+      - name: Upload rootfs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: polaris-rootfs
+          path: /tmp/rootfs.tar.gz
+          compression-level: 0
