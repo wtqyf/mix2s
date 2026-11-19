@@ -29,6 +29,7 @@ jobs:
       - name: Fetch Alpine minirootfs (aarch64)
         run: |
           set -e
+          set -o pipefail
           BASE=https://dl-cdn.alpinelinux.org/alpine
           for V in v3.22 v3.23 v3.21; do
             F=$(curl -sSL "$BASE/$V/releases/aarch64/" | grep -oE 'alpine-minirootfs-[0-9.]+-aarch64\.tar\.gz' | sort -V | tail -1)
@@ -47,10 +48,11 @@ jobs:
       - name: Configure apk repositories
         run: |
           set -e
+          set -o pipefail
           sudo tee /tmp/rootfs/etc/apk/repositories >/dev/null <<EOF
           https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VER}/main
           https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VER}/community
-          https://mirror.postmarketos.org/postmarketos/v25.12/aarch64
+          https://mirror.postmarketos.org/postmarketos/v25.12
           EOF
           # qemu interpreter must be reachable from inside the chroot
           Q=$(ls /usr/bin/qemu-aarch64* 2>/dev/null | head -1)
@@ -63,6 +65,7 @@ jobs:
       - name: Install pmOS packages
         run: |
           set -e
+          set -o pipefail
           sudo chroot /tmp/rootfs /sbin/apk add --allow-untrusted --no-progress \
             alpine-base openrc \
             postmarketos-base device-xiaomi-polaris \
@@ -73,6 +76,7 @@ jobs:
       - name: Configure system
         run: |
           set -e
+          set -o pipefail
           R=/tmp/rootfs
           echo "polaris" | sudo tee $R/etc/hostname
           sudo tee $R/etc/hosts >/dev/null <<'EOF'
@@ -103,6 +107,7 @@ jobs:
       - name: Pack rootfs
         run: |
           set -e
+          set -o pipefail
           sudo tar czf /tmp/rootfs.tar.gz -C /tmp/rootfs .
           ls -lh /tmp/rootfs.tar.gz
           sudo chown $USER /tmp/rootfs.tar.gz
