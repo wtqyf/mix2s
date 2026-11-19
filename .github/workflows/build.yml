@@ -57,6 +57,13 @@ jobs:
           echo "--- patched line ---"
           grep -n "BIT(6) | BIT(5)" dsi_phy_10nm.c
 
+      - name: Patch panel NT35596S (DCS init in .enable, after DSI host enabled)
+        run: |
+          cd "$KDIR/drivers/gpu/drm/panel"
+          python3 "$GITHUB_WORKSPACE/patch_panel.py"
+          echo "--- patched funcs ---"
+          grep -n "nt35596s_panel_enable\|\.enable =" panel-novatek-nt35596s.c
+
       - name: Configure (olddefconfig, strip debug info)
         run: |
           cd "$KDIR"
