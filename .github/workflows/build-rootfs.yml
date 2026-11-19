@@ -12,13 +12,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
-      - name: Install qemu-user-static (run aarch64 binaries via binfmt)
+      - name: Setup qemu aarch64 binfmt
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-user-static binfmt-support
-          sudo systemctl restart systemd-binfmt 2>/dev/null || true
-          ls /proc/sys/fs/binfmt_misc/ | head
-          cat /proc/sys/fs/binfmt_misc/qemu-aarch64 2>/dev/null | head -3 || echo "binfmt entry missing"
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq qemu-user-static || \
+            sudo apt-get install -y -qq qemu-user-binfmt || true
+          sudo mkdir -p /sys/fs/binfmt_misc || true
+          sudo mount -t binfmt_misc binfmt_misc /sys/fs/binfmt_misc 2>/dev/null || true
+          if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+            echo "registering via docker"
+            sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          fi
+          head -3 /proc/sys/fs/binfmt_misc/qemu-aarch64
+          test -f /usr/bin/qemu-aarch64-static && echo "host qemu binary ok"
 
       - name: Fetch Alpine minirootfs (aarch64)
         run: |
@@ -46,7 +52,11 @@ jobs:
           https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VER}/community
           https://mirror.postmarketos.org/postmarketos/v25.12/aarch64
           EOF
-          sudo mkdir -p /tmp/rootfs/etc/apk/keys
+          # qemu interpreter must be reachable from inside the chroot
+          if [ -f /usr/bin/qemu-aarch64-static ]; then
+            sudo mkdir -p /tmp/rootfs/usr/bin
+            sudo cp /usr/bin/qemu-aarch64-static /tmp/rootfs/usr/bin/
+          fi
           sudo chroot /tmp/rootfs /sbin/apk update --allow-untrusted 2>&1 | tail -5
 
       - name: Install pmOS packages
