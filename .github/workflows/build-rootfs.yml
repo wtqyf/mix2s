@@ -24,7 +24,7 @@ jobs:
             sudo docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
           fi
           head -3 /proc/sys/fs/binfmt_misc/qemu-aarch64
-          test -f /usr/bin/qemu-aarch64-static && echo "host qemu binary ok"
+          ls /usr/bin/qemu-aarch64* && echo "host qemu ok"
 
       - name: Fetch Alpine minirootfs (aarch64)
         run: |
@@ -53,9 +53,10 @@ jobs:
           https://mirror.postmarketos.org/postmarketos/v25.12/aarch64
           EOF
           # qemu interpreter must be reachable from inside the chroot
-          if [ -f /usr/bin/qemu-aarch64-static ]; then
+          Q=$(ls /usr/bin/qemu-aarch64* 2>/dev/null | head -1)
+          if [ -n "$Q" ]; then
             sudo mkdir -p /tmp/rootfs/usr/bin
-            sudo cp /usr/bin/qemu-aarch64-static /tmp/rootfs/usr/bin/
+            sudo cp "$Q" /tmp/rootfs/usr/bin/
           fi
           sudo chroot /tmp/rootfs /sbin/apk update --allow-untrusted 2>&1 | tail -5
 
