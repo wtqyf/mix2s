@@ -31,7 +31,7 @@ jobs:
           set -e
           set -o pipefail
           BASE=https://dl-cdn.alpinelinux.org/alpine
-          for V in v3.22 v3.23 v3.21; do
+          for V in v3.23 v3.22 v3.21; do
             F=$(curl -sSL "$BASE/$V/releases/aarch64/" | grep -oE 'alpine-minirootfs-[0-9.]+-aarch64\.tar\.gz' | sort -V | tail -1)
             if [ -n "$F" ]; then
               echo "ALPINE_VER=$V" >> $GITHUB_ENV
