@@ -105,3 +105,36 @@ jobs:
           path: ${{ env.KDIR }}/arch/arm64/boot/Image
           if-no-files-found: error
           retention-days: 7
+
+      - name: Build modules
+        run: |
+          set -o pipefail
+          cd "$KDIR"
+          time make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" modules 2>&1 | tail -40
+
+      - name: Install and package modules
+        run: |
+          set -e
+          cd "$KDIR"
+          REL=$(make -s ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- kernelrelease)
+          echo "release=$REL"
+          rm -rf "$GITHUB_WORKSPACE/mods"
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            INSTALL_MOD_PATH="$GITHUB_WORKSPACE/mods" INSTALL_MOD_STRIP=1 modules_install
+          D="$GITHUB_WORKSPACE/mods/lib/modules/$REL"
+          ls "$D" | head
+          echo "ko count: $(find "$D" -name '*.ko*' | wc -l)"
+          echo "wifi/remoteproc 关键模块:"
+          find "$D" -name 'ath10k*' -o -name 'mac80211*' -o -name 'cfg80211*' -o -name 'qcom_q6v5*' -o -name 'qcom_wcnss*' -o -name 'qrtr*' | head -20
+          rm -f "$D/build" "$D/source"
+          tar czf "$GITHUB_WORKSPACE/modules-$REL.tar.gz" -C "$GITHUB_WORKSPACE/mods" lib/modules
+          ls -lh "$GITHUB_WORKSPACE/modules-$REL.tar.gz"
+          echo "MODREL=$REL" > "$GITHUB_WORKSPACE/modrel.txt"
+
+      - name: Upload modules artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: polaris-modules-${{ env.KVER }}
+          path: ${{ github.workspace }}/modules-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
