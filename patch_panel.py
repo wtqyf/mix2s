@@ -6,7 +6,7 @@ panel auto-sleep (~30s watchdog) that caused black screen after boot text.
 """
 import sys
 
-PATH = "drivers/gpu/drm/panel/panel-novatek-nt35596s.c"
+PATH = "panel-novatek-nt35596s.c"
 
 OLD_PREPARE = """static int nt35596s_panel_prepare(struct drm_panel *panel)
 {
